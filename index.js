@@ -1,19 +1,25 @@
 const express = require('express');
 const admin = require('firebase-admin');
 
-// Load credentials from environment
-if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-  console.error('❌ GOOGLE_APPLICATION_CREDENTIALS_JSON is not set.');
-  process.exit(1);
-}
+// Load credentials from environment variables
+const serviceAccount = {
+  type: 'service_account',
+  project_id: process.env.FIREBASE_PROJECT_ID,
+  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+  private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  client_email: process.env.FIREBASE_CLIENT_EMAIL,
+  client_id: process.env.FIREBASE_CLIENT_ID,
+  auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+  token_uri: 'https://oauth2.googleapis.com/token',
+  auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+  client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
+};
 
-const serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-
-// Initialize Firebase
+// Initialize Firebase Admin SDK
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://starx-network-default-rtdb.firebaseio.com"
+    databaseURL: 'https://starx-network-default-rtdb.firebaseio.com',
   });
 }
 
@@ -35,7 +41,7 @@ async function getFirebaseServerTime() {
   return snap.val();
 }
 
-// Active referrals
+// Count active referrals
 async function getActiveReferralCount(referralCode) {
   if (!referralCode) return 0;
   const snap = await usersRef.orderByChild('referredBy').equalTo(referralCode).once('value');
@@ -47,7 +53,7 @@ async function getActiveReferralCount(referralCode) {
   return count;
 }
 
-// Process user mining
+// Process mining for one user
 async function processUser(uid, userData, now) {
   const mining = userData.mining;
   if (!mining?.isMining || !mining.startTime) return;
@@ -55,8 +61,8 @@ async function processUser(uid, userData, now) {
   const lastUpdate = mining.lastUpdate || mining.startTime;
   const miningEnd = mining.startTime + MINING_DURATION_MS;
   const creditUntil = Math.min(now, miningEnd);
-
   const isDone = creditUntil >= miningEnd;
+
   const elapsedMinutes = Math.floor((creditUntil - lastUpdate) / (60 * 1000));
   if (elapsedMinutes <= 0) return;
 
@@ -85,13 +91,19 @@ async function runMiningJob() {
   const users = snap.val() || {};
 
   await Promise.all(
-    Object.entries(users).map(([uid, data]) => processUser(uid, data, now))
+    Object.entries(users).map(async ([uid, data]) => {
+      try {
+        await processUser(uid, data, now);
+      } catch (err) {
+        console.error(`❌ Error processing ${uid}:`, err.message);
+      }
+    })
   );
 
   console.log('🎯 Mining job finished.');
 }
 
-// Dashboard
+// Dashboard page
 app.get('/', async (req, res) => {
   const snap = await usersRef.once('value');
   const users = snap.val() || {};
@@ -103,7 +115,7 @@ app.get('/', async (req, res) => {
   res.send(html);
 });
 
-// Manual mining trigger
+// Manual trigger
 app.get('/run', async (req, res) => {
   try {
     await runMiningJob();
@@ -114,6 +126,7 @@ app.get('/run', async (req, res) => {
   }
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
