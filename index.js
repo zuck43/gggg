@@ -1,17 +1,23 @@
 const express = require('express');
 const admin = require('firebase-admin');
 
-// Check and load credentials
-if (!process.env.FIREBASE_CREDENTIALS) {
-  console.error('FIREBASE_CREDENTIALS environment variable is not set!');
+// Load Firebase credentials from environment
+if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+  console.error("❌ GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable is not set!");
   process.exit(1);
 }
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+let credentials;
+try {
+  credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+} catch (err) {
+  console.error("❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:", err.message);
+  process.exit(1);
+}
 
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.credential.cert(credentials),
     databaseURL: "https://starx-network-default-rtdb.firebaseio.com"
   });
 }
@@ -94,7 +100,7 @@ async function runMiningJob() {
   console.log('✅ Mining job completed.');
 }
 
-// Express server
+// Express app setup
 const app = express();
 
 // Dashboard route
@@ -144,18 +150,18 @@ app.get('/', async (req, res) => {
     `;
     res.send(html);
   } catch (err) {
-    res.status(500).send('Error fetching balances');
+    res.status(500).send('❌ Error fetching balances');
   }
 });
 
-// Trigger route for mining cron
+// Trigger route
 app.get('/run', async (req, res) => {
   try {
     await runMiningJob();
     res.send('Mining job completed ✅');
   } catch (err) {
-    console.error('Error in /run:', err);
-    res.status(500).send('❌ Error occurred');
+    console.error('❌ Error in /run:', err);
+    res.status(500).send('❌ Mining job error');
   }
 });
 
